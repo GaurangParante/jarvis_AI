@@ -227,7 +227,7 @@ class ChatService:
         }
 
         try:
-            with open(filepath,"W",encoding="utf-8") as f:
+            with open(filepath,"w",encoding="utf-8") as f:
                 json.dump(chat_dict,f,indent=2,ensure_ascii=False)
 
         except Exception as e:

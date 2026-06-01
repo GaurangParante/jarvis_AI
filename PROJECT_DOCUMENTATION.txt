@@ -1,0 +1,1883 @@
+J.A.R.V.I.S AI PROJECT DOCUMENTATION
+====================================
+
+Project Name:
+J.A.R.V.I.S AI
+
+Full Form:
+Just A Rather Very Intelligent System
+
+Purpose:
+Ye project ek local AI assistant backend hai. Iska kaam hai user ke message ko receive karna, us message ke liye AI response generate karna, chat history save karna, learning data se relevant context nikalna, aur realtime query ke liye web search use karna.
+
+Simple meaning:
+User Chrome ya API docs me message bhejta hai. FastAPI backend message receive karta hai. ChatService session manage karta hai. GroqService AI model ko call karta hai. RealtimeGroqService realtime search ke liye Tavily use karta hai. VectorStoreService local memory aur learning data se useful context nikalta hai.
+
+
+WHY THIS PROJECT WAS CREATED
+============================
+
+1. Personal AI assistant banane ke liye.
+
+2. Aisa assistant jo:
+   - Normal chat kar sake.
+   - Realtime web search kar sake.
+   - User ke learning data se answer improve kar sake.
+   - Previous chat history ko remember kar sake.
+   - Local machine par FastAPI server ke form me run ho.
+
+3. Is project ka backend reusable hai:
+   - Chrome frontend se call ho sakta hai.
+   - FastAPI docs se test ho sakta hai.
+   - Kisi future UI app se connect ho sakta hai.
+
+
+PROJECT START FLOW
+==================
+
+Main flow:
+
+1. User command run karta hai:
+   python run.py
+
+2. run.py Uvicorn server start karta hai.
+
+3. Uvicorn app.main:app import karta hai.
+
+4. app/main.py me FastAPI app load hota hai.
+
+5. FastAPI lifespan startup function run karta hai.
+
+6. Startup me ye services initialize hoti hain:
+   - VectorStoreService
+   - GroqService
+   - RealtimeGroqService
+   - ChatService
+
+7. Server ready hota hai:
+   http://localhost:8000
+   http://localhost:8000/docs
+
+8. User /chat ya /chat/realtime endpoint par message bhejta hai.
+
+9. ChatService session create/load karta hai.
+
+10. GroqService ya RealtimeGroqService AI response generate karta hai.
+
+11. Response user ko wapas milta hai.
+
+12. Chat history disk par save hoti hai.
+
+
+MAIN REQUEST FLOW
+=================
+
+Normal chat flow:
+
+User -> /chat -> app.main.chat() -> ChatService.process_message()
+-> GroqService.get_response() -> Groq API -> response
+-> ChatService saves assistant message -> API returns ChatResponse
+
+Realtime chat flow:
+
+User -> /chat/realtime -> app.main.chat_realtime()
+-> ChatService.process_realtime_message()
+-> RealtimeGroqService.get_response()
+-> Tavily search + VectorStore context + Groq API
+-> response -> ChatService saves assistant message
+-> API returns ChatResponse
+
+
+FILE: run.py
+============
+
+Purpose:
+run.py project ka entry point hai. Ye file server start karti hai.
+
+Code:
+import uvicorn
+
+Meaning:
+uvicorn ek ASGI server hai. FastAPI apps ko run karne ke liye use hota hai.
+
+Line:
+if __name__ == "__main__":
+
+Meaning:
+Ye condition tab true hoti hai jab file directly run ki jaye:
+python run.py
+
+Line:
+uvicorn.run(...)
+
+Meaning:
+Ye FastAPI app ko server par start karta hai.
+
+Parameter:
+"app.main:app"
+
+Meaning:
+Uvicorn ko batata hai ki FastAPI app app/main.py file ke app variable me hai.
+
+Parameter:
+host="0.0.0.0"
+
+Meaning:
+Server local machine ke sab network interfaces par listen karega.
+
+Parameter:
+port=8000
+
+Meaning:
+Server port 8000 par run karega.
+
+Parameter:
+reload=True
+
+Meaning:
+Code me change karne par server auto reload karega. Development ke liye useful hai.
+
+Parameter:
+log_level="warning"
+
+Meaning:
+Sirf warning/error level ke logs show honge. Terminal clean dikhega.
+
+Parameter:
+access_log=False
+
+Meaning:
+Har browser/API request ka access log terminal me print nahi hoga.
+
+
+FILE: app/main.py
+=================
+
+Purpose:
+Ye project ka FastAPI application file hai. Isme API endpoints, startup/shutdown logic, services initialization, CORS, logging, aur error handling hota hai.
+
+Important imports:
+
+from fastapi import FastAPI, HTTPException
+FastAPI app create karne aur API errors return karne ke liye.
+
+from fastapi.middleware.cors import CORSMiddleware
+Frontend/browser ko backend call karne dene ke liye.
+
+from contextlib import asynccontextmanager
+FastAPI lifespan startup/shutdown manage karne ke liye.
+
+import uvicorn
+Same file ko directly run karne ka support.
+
+import logging
+Terminal logs ke liye.
+
+import os
+Terminal clear karne ke liye.
+
+from app.models import ChatRequest, ChatResponse
+Request aur response validation ke liye Pydantic models.
+
+
+Variable: RATE_LIMIT_MESSAGE
+----------------------------
+
+Purpose:
+Jab API provider rate limit deta hai, tab user ko friendly message dikhane ke liye.
+
+Function: _is_rate_limit_error(exc)
+-----------------------------------
+
+Purpose:
+Exception ko check karta hai ki kya ye rate limit error hai.
+
+Input:
+exc: Exception object
+
+Logic:
+1. Exception message ko lowercase me convert karta hai.
+2. Check karta hai:
+   - "429"
+   - "rate limit"
+   - "tokens per day"
+
+Return:
+True agar rate limit error ho, warna False.
+
+Used by:
+chat()
+chat_realtime()
+
+
+Service imports:
+----------------
+
+VectorStoreService:
+Learning data aur chat history ko vector database me convert karta hai.
+
+GroqService:
+Normal AI chat response generate karta hai.
+
+RealtimeGroqService:
+Realtime search + AI response generate karta hai.
+
+ChatService:
+Session, chat history, save/load, aur message processing manage karta hai.
+
+
+Logging setup:
+--------------
+
+logging.basicConfig(...)
+
+Purpose:
+Terminal logs ka format define karta hai.
+
+level=logging.INFO:
+INFO aur usse upar ke logs allow.
+
+format:
+Date, log level, aur message print karta hai.
+
+datefmt:
+Date format define karta hai.
+
+
+Global service variables:
+-------------------------
+
+vector_store_service = None
+groq_service = None
+realtime_service = None
+chat_service = None
+
+Purpose:
+Startup ke baad ye variables actual service objects hold karte hain.
+
+Why global:
+API endpoints in services ko use kar sakein.
+
+
+Function: print_title()
+-----------------------
+
+Purpose:
+Terminal clean karke J.A.R.V.I.S title print karta hai.
+
+Line:
+os.system("cls" if os.name == "nt" else "clear")
+
+Meaning:
+Windows me cls command use hoti hai. Linux/Mac me clear command use hoti hai.
+
+Line:
+print(title)
+
+Meaning:
+Terminal me title print hota hai.
+
+
+Function: lifespan(app)
+-----------------------
+
+Purpose:
+FastAPI server start hone par services initialize karna, aur shutdown par sessions save karna.
+
+Decorator:
+@asynccontextmanager
+
+Meaning:
+Is function me yield se pehle startup code run hota hai. yield ke baad shutdown code run hota hai.
+
+Startup flow:
+
+1. print_title()
+Terminal clear + title print.
+
+2. VectorStoreService()
+Embeddings, splitter, vector store service create.
+
+3. vector_store_service.create_vector_store()
+Learning data aur chat history se FAISS vector index banata hai.
+
+4. GroqService(vector_store_service)
+Groq AI service create karta hai. Vector store service pass karta hai taki context retrieve ho sake.
+
+5. RealtimeGroqService(vector_store_service)
+Realtime service create karta hai. Ye GroqService inherit karta hai aur Tavily search add karta hai.
+
+6. ChatService(groq_service, realtime_service)
+Chat session manager create karta hai.
+
+7. yield
+Is point ke baad app requests handle karna start karta hai.
+
+Shutdown flow:
+
+1. Server stop hone par yield ke baad ka code run hota hai.
+2. Active sessions ko save_chat_session() se disk par save karta hai.
+
+Error handling:
+Startup me koi fatal error aaye to logger.error print karta hai aur error raise karta hai.
+
+
+FastAPI app creation:
+---------------------
+
+app = FastAPI(...)
+
+title:
+API docs me project ka naam.
+
+description:
+API docs me description.
+
+lifespan:
+Startup/shutdown function attach karta hai.
+
+
+CORS middleware:
+----------------
+
+app.add_middleware(CORSMiddleware, ...)
+
+Purpose:
+Frontend app ya browser extension ko backend call karne dena.
+
+allow_origins=["*"]:
+Any origin allowed.
+
+allow_methods=["*"]:
+All HTTP methods allowed.
+
+allow_headers=["*"]:
+All headers allowed.
+
+
+Endpoint: GET /
+---------------
+
+Function:
+root()
+
+Purpose:
+Basic API overview return karta hai.
+
+Return:
+message aur available endpoints.
+
+
+Endpoint: GET /health
+---------------------
+
+Function:
+health()
+
+Purpose:
+Server aur services ready hain ya nahi, ye batata hai.
+
+Return fields:
+status:
+"healthy"
+
+vector_store:
+True agar vector_store_service initialized hai.
+
+groq_service:
+True agar groq_service initialized hai.
+
+realtime_service:
+True agar realtime_service initialized hai.
+
+chat_service:
+True agar chat_service initialized hai.
+
+
+Endpoint: POST /chat
+--------------------
+
+Function:
+chat(request: ChatRequest)
+
+Purpose:
+Normal chat handle karta hai. Isme realtime web search nahi hota.
+
+Input:
+ChatRequest:
+message
+session_id optional
+
+Flow:
+1. Check karta hai chat_service initialized hai ya nahi.
+2. session_id create ya load karta hai.
+3. ChatService.process_message() call karta hai.
+4. Chat session save karta hai.
+5. ChatResponse return karta hai.
+
+Calls:
+chat_service.get_or_create_session()
+chat_service.process_message()
+chat_service.save_chat_session()
+
+Errors:
+ValueError:
+Invalid session_id ke liye 400.
+
+Rate limit:
+429 response.
+
+Other exception:
+500 response.
+
+
+Endpoint: POST /chat/realtime
+-----------------------------
+
+Function:
+chat_realtime(request: ChatRequest)
+
+Purpose:
+Realtime chat handle karta hai. Isme Tavily web search use hota hai.
+
+Flow:
+1. chat_service check.
+2. realtime_service check.
+3. session_id create/load.
+4. ChatService.process_realtime_message() call.
+5. Session save.
+6. ChatResponse return.
+
+Calls:
+chat_service.get_or_create_session()
+chat_service.process_realtime_message()
+chat_service.save_chat_session()
+
+
+Endpoint: GET /chat/history/{session_id}
+----------------------------------------
+
+Function:
+get_chat_history(session_id)
+
+Purpose:
+Specific session ki messages list return karta hai.
+
+Flow:
+1. chat_service check.
+2. chat_service.get_chat_history(session_id)
+3. messages ko role/content format me return karta hai.
+
+
+Function: run()
+---------------
+
+Purpose:
+app/main.py ko directly run karne ka support.
+
+Note:
+Usually project run.py se run hota hai, but app/main.py me bhi run function present hai.
+
+
+FILE: app/models.py
+===================
+
+Purpose:
+Pydantic models define karta hai. Ye API request/response validation ke liye use hote hain.
+
+Why Pydantic:
+FastAPI Pydantic models se automatic validation, docs, and schema generate karta hai.
+
+
+Class: ChatMessage
+------------------
+
+Fields:
+role: str
+content: str
+
+Purpose:
+Single chat message represent karta hai.
+
+Example:
+role = "user"
+content = "Hello"
+
+Example:
+role = "assistant"
+content = "Hello sir"
+
+Used by:
+ChatService sessions
+ChatHistory
+save/load chat history
+
+
+Class: ChatRequest
+------------------
+
+Fields:
+message: str
+session_id: Optional[str]
+
+message:
+User ka actual message.
+
+Validation:
+min_length=1
+max_length=32000
+
+Why:
+Empty message block karne ke liye aur very huge message se API/model issue avoid karne ke liye.
+
+session_id:
+Optional hai. Agar user nahi bhejta to new session create hota hai.
+
+
+Class: ChatHistory
+------------------
+
+Fields:
+session_id: str
+messages: List[ChatMessage]
+
+Purpose:
+Ek full chat session represent karne ke liye.
+
+
+Class: ChatResponse
+-------------------
+
+Fields:
+response: str
+session_id: str
+
+Purpose:
+API response ka fixed format.
+
+response:
+AI ka answer.
+
+session_id:
+Conversation continue karne ke liye session ID.
+
+
+FILE: config.py
+===============
+
+Purpose:
+Pure project ki central settings file.
+
+Why config.py:
+API keys, paths, model names, chunk settings, system prompt sab ek jagah rakhne se code clean rehta hai.
+
+
+Imports:
+--------
+
+import os:
+Environment variables read karne ke liye.
+
+import logging:
+Warnings log karne ke liye.
+
+from pathlib import Path:
+File/folder paths safely manage karne ke liye.
+
+from dotenv import load_dotenv:
+.env file se API keys load karne ke liye.
+
+
+load_dotenv()
+-------------
+
+Purpose:
+.env file ke variables Python environment me load karta hai.
+
+Example .env:
+GROQ_API_KEY=...
+TAVILY_API_KEY=...
+
+
+BASE_DIR
+--------
+
+BASE_DIR = Path(__file__).parent
+
+Meaning:
+Project root folder ka path.
+
+
+Database paths:
+---------------
+
+LEARNING_DATA_DIR:
+database/learning_data
+
+Purpose:
+Text files jisme personal/user learning data stored ho.
+
+CHATS_DATA_DIR:
+database/chats_data
+
+Purpose:
+Chat history JSON files store karna.
+
+VECTOR_STORE_DIR:
+database/vector_store
+
+Purpose:
+FAISS index files store karna.
+
+mkdir(...):
+Folders agar exist nahi karte to create karta hai.
+
+
+Function: _load_groq_api_keys()
+-------------------------------
+
+Purpose:
+One or multiple Groq API keys .env se load karta hai.
+
+Flow:
+1. GROQ_API_KEY read karta hai.
+2. GROQ_API_KEY_2, GROQ_API_KEY_3, etc. loop me read karta hai.
+3. Empty key milte hi loop stop hota hai.
+4. List return hoti hai.
+
+Why multiple keys:
+Rate limit handle karne ke liye. Ek key fail/rate limited ho to next key try ho sakti hai.
+
+
+GROQ_API_KEYS
+-------------
+
+Purpose:
+All Groq API keys ki list.
+
+
+GROQ_API_KEY
+------------
+
+Purpose:
+Backward compatibility ke liye first key.
+
+
+GROQ_MODEL
+----------
+
+Default:
+llama-3.3-70b-versatile
+
+Purpose:
+Groq par kaunsa model use hoga.
+
+
+TAVILY_API_KEY
+--------------
+
+Purpose:
+Realtime search ke liye Tavily API key.
+
+
+EMBEDDING_MODEL
+---------------
+
+Value:
+sentence-transformers/all-MiniLM-L6-v2
+
+Purpose:
+Text ko embeddings/vector me convert karne ke liye.
+
+Why:
+Vector search ke liye text ko numbers me convert karna padta hai.
+
+
+CHUNK_SIZE
+----------
+
+Value:
+1000
+
+Purpose:
+Large documents ko 1000 character chunks me split karna.
+
+
+CHUNK_OVERLAP
+-------------
+
+Value:
+200
+
+Purpose:
+Chunks ke beech 200 character overlap rakhna taki context break na ho.
+
+
+MAX_CHAT_HISTORY_TURNS
+----------------------
+
+Value:
+20
+
+Purpose:
+LLM prompt me sirf recent 20 user-assistant pairs bhejne ke liye.
+
+Why:
+Prompt too large hone se token limit/cost issue hota hai.
+
+
+MAX_MESSAGE_LENGTH
+------------------
+
+Value:
+32000
+
+Purpose:
+Single user message ki max length.
+
+
+ASSISTANT_NAME
+--------------
+
+Purpose:
+.env se assistant name set karna. Default "Jarvis".
+
+
+JARVIS_USER_TITLE
+-----------------
+
+Purpose:
+Optional user title set karna.
+
+
+JARVIS_SYSTEM_PROMPT
+--------------------
+
+Purpose:
+AI ko personality, tone, behavior, memory style, formatting rules batata hai.
+
+Used by:
+GroqService.get_response()
+RealtimeGroqService.get_response()
+
+
+Function: load_user_context()
+-----------------------------
+
+Purpose:
+learning_data folder ke sab .txt files read karke ek string me combine karta hai.
+
+Flow:
+1. learning_data folder me .txt files find.
+2. Har file read.
+3. Non-empty content list me add.
+4. Double newline se join.
+5. Combined string return.
+
+Note:
+Main chat flow currently vector store use karta hai, direct full user context nahi bhejta.
+
+
+FILE: app/services/vector_store.py
+==================================
+
+Purpose:
+Learning data aur chat history ko vector database me convert karna. Isse AI ko relevant memory/context milta hai.
+
+Why vector store:
+AI ko har baar poora data bhejna expensive aur slow hota hai. Vector store relevant chunks search karke sirf useful context bhejta hai.
+
+
+Imports:
+--------
+
+json:
+Chat history JSON read karne ke liye.
+
+logging:
+Warnings/errors log karne ke liye.
+
+Path:
+Path handling ke liye.
+
+List, Optional:
+Type hints ke liye.
+
+RecursiveCharacterTextSplitter:
+Large text ko chunks me split karta hai.
+
+HuggingFaceEmbeddings:
+Text ko vector embeddings me convert karta hai.
+
+FAISS:
+Local vector database.
+
+Document:
+LangChain document object, jisme page_content aur metadata hota hai.
+
+config imports:
+Paths, embedding model, chunk size, chunk overlap.
+
+
+Class: VectorStoreService
+-------------------------
+
+Purpose:
+Embeddings, text splitter, FAISS vector store manage karta hai.
+
+
+Function: __init__()
+--------------------
+
+Purpose:
+Vector store service setup.
+
+Creates:
+1. self.embeddings
+2. self.text_splitter
+3. self.vector_store = None
+
+self.embeddings:
+HuggingFace model use karta hai.
+
+model_kwargs={"device":"cpu"}:
+Embedding CPU par chalegi.
+
+self.text_splitter:
+Text ko chunks me split karega.
+
+
+Function: load_learning_data()
+------------------------------
+
+Purpose:
+database/learning_data ke .txt files load karta hai.
+
+Flow:
+1. documents empty list.
+2. LEARNING_DATA_DIR.glob("*.txt") se text files find.
+3. Har file open.
+4. Content read and strip.
+5. Agar content non-empty hai to Document create.
+6. Document metadata me source file name save.
+7. Documents list return.
+
+Return:
+List[Document]
+
+Used by:
+create_vector_store()
+
+
+Function: load_chat_history()
+-----------------------------
+
+Purpose:
+Saved chat JSON files ko documents me convert karta hai.
+
+Flow:
+1. CHATS_DATA_DIR ke .json files find.
+2. JSON load.
+3. messages list nikalta hai.
+4. Messages ko readable text banata hai:
+   User: ...
+   Assistant: ...
+5. Agar chat_content non-empty hai to Document create.
+6. Documents list return.
+
+Why:
+Past chats bhi vector store memory me include ho sakti hain.
+
+
+Function: create_vector_store()
+-------------------------------
+
+Purpose:
+Learning data + chat history se FAISS vector store banana.
+
+Flow:
+1. learning_docs = load_learning_data()
+2. chat_docs = load_chat_history()
+3. all_documents = learning_docs + chat_docs
+4. Agar all_documents empty hai:
+   FAISS.from_texts(["No data available yet."], embeddings)
+5. Warna:
+   text_splitter.split_documents(all_documents)
+   FAISS.from_documents(chunks, embeddings)
+6. save_vector_store()
+7. vector_store return.
+
+Used by:
+app.main.lifespan()
+
+
+Function: save_vector_store()
+-----------------------------
+
+Purpose:
+FAISS vector store disk par save karna.
+
+Flow:
+1. Check self.vector_store exists.
+2. self.vector_store.save_local(VECTOR_STORE_DIR)
+3. Error aaye to log.
+
+
+Function: get_retriever(k=10)
+-----------------------------
+
+Purpose:
+Vector store se retriever object return karna.
+
+Input:
+k = number of relevant documents to retrieve.
+
+Flow:
+1. Agar vector_store initialized nahi hai to RuntimeError.
+2. vector_store.as_retriever(search_kwargs={"k": k})
+
+Used by:
+GroqService.get_response()
+RealtimeGroqService.get_response()
+
+
+FILE: app/services/groq_service.py
+==================================
+
+Purpose:
+Groq AI model ko call karna, prompt banana, local vector context add karna, chat history include karna, aur multiple API keys handle karna.
+
+
+Imports:
+--------
+
+ChatGroq:
+Groq LLM wrapper.
+
+ChatPromptTemplate:
+LangChain prompt template banane ke liye.
+
+MessagesPlaceholder:
+Chat history insert karne ke liye placeholder.
+
+HumanMessage, AIMessage:
+History ko LangChain format me convert karne ke liye.
+
+GROQ_API_KEYS, GROQ_MODEL, JARVIS_SYSTEM_PROMPT:
+Config values.
+
+VectorStoreService:
+Context retrieval ke liye.
+
+get_time_information:
+Current date/time prompt me add karne ke liye.
+
+
+Function: escape_curly_braces(text)
+-----------------------------------
+
+Purpose:
+Prompt template me curly braces issue avoid karna.
+
+Why:
+LangChain templates me {question} jaisi variables hoti hain. Agar context me normal { } aaye to template confuse ho sakta hai.
+
+Logic:
+"{" ko "{{" me replace.
+"}" ko "}}" me replace.
+
+
+Function: _is_rate_limit_error(exc)
+-----------------------------------
+
+Purpose:
+Exception check karta hai ki kya API key rate limited hai.
+
+Used by:
+_invoke_llm()
+
+
+Function: _mask_api_key(key)
+----------------------------
+
+Purpose:
+Logs me API key safe dikhana.
+
+Example:
+abcd1234...wxyz
+
+Why:
+Full secret key terminal me print nahi honi chahiye.
+
+
+Class: GroqService
+------------------
+
+Purpose:
+Normal AI response generate karna.
+
+Class variable:
+_shared_key_index = 0
+
+Purpose:
+Multiple API keys ko round-robin order me use karna.
+
+
+Function: __init__(vector_store_service)
+----------------------------------------
+
+Purpose:
+Groq clients initialize karna.
+
+Flow:
+1. Check GROQ_API_KEYS empty nahi hai.
+2. Har API key ke liye ChatGroq object create.
+3. self.llms me store.
+4. vector_store_service store.
+
+Why vector_store_service:
+Question ke relevant memory/context retrieve karne ke liye.
+
+
+Function: _invoke_llm(prompt, messages, question)
+-------------------------------------------------
+
+Purpose:
+Final prompt ko Groq model par send karna.
+
+Inputs:
+prompt:
+ChatPromptTemplate object.
+
+messages:
+Chat history messages.
+
+question:
+Current user question.
+
+Flow:
+1. Total LLM clients count n.
+2. Start key round-robin index se choose.
+3. shared key index increment.
+4. API key masked form log.
+5. For loop me keys try karta hai.
+6. chain = prompt | self.llms[i]
+7. chain.invoke({"history": messages, "question": question})
+8. Success par response.content return.
+9. Error aaye to:
+   - rate limit hai to warning.
+   - other error hai to warning.
+   - multiple keys hain to next key try.
+   - single key hai to error raise.
+10. Sab keys fail ho to final exception raise.
+
+Why:
+Rate limit aur key failure handle karne ke liye.
+
+
+Function: get_response(question, chat_history=None)
+---------------------------------------------------
+
+Purpose:
+Normal chat response generate karna.
+
+Flow:
+1. Vector store se relevant context retrieve karne ki try.
+2. Current time/date get_time_information() se get.
+3. system_message create:
+   JARVIS_SYSTEM_PROMPT + current time/date.
+4. Agar context milta hai to system_message me add.
+5. ChatPromptTemplate create:
+   - system message
+   - history placeholder
+   - human question
+6. chat_history ko HumanMessage/AIMessage me convert.
+7. _invoke_llm() call.
+8. Response return.
+
+Called by:
+ChatService.process_message()
+
+
+FILE: app/services/realtime_service.py
+======================================
+
+Purpose:
+Realtime chat ke liye Tavily web search + Groq AI response.
+
+This class:
+RealtimeGroqService(GroqService)
+
+Meaning:
+Ye GroqService inherit karta hai. Isliye iske paas _invoke_llm() aur Groq LLM clients already available hote hain.
+
+
+Imports:
+--------
+
+TavilyClient:
+Realtime search API client.
+
+os:
+Environment variable read karne ke liye.
+
+GroqService, escape_curly_braces:
+GroqService inherit karne aur prompt escaping ke liye.
+
+with_retry:
+Tavily search failure par retry karne ke liye.
+
+JARVIS_SYSTEM_PROMPT:
+System prompt base.
+
+ChatPromptTemplate, MessagesPlaceholder, HumanMessage, AIMessage:
+Prompt and chat history ke liye.
+
+
+Function: __init__(vector_store_service)
+----------------------------------------
+
+Purpose:
+Parent GroqService initialize karna aur Tavily client setup karna.
+
+Flow:
+1. super().__init__(vector_store_service)
+   GroqService ka init run karta hai.
+2. TAVILY_API_KEY env se read.
+3. Agar key hai:
+   self.tavily_client = TavilyClient(...)
+4. Agar key nahi:
+   self.tavily_client = None
+   warning log.
+
+
+Function: search_tavily(query, num_results=5)
+---------------------------------------------
+
+Purpose:
+Tavily se realtime search results lana.
+
+Flow:
+1. Agar tavily_client nahi hai:
+   warning return empty string.
+2. with_retry() ke andar tavily_client.search() call.
+3. Parameters:
+   query: user question
+   search_depth="basic"
+   max_results=num_results
+   include_answer=False
+   include_raw_content=False
+4. response se results get.
+5. Agar result empty:
+   warning and return empty string.
+6. Results ko readable text format me convert:
+   Search results for ...
+   Title: ...
+   Description: ...
+7. formatted_results return.
+8. Error aaye to log and empty string return.
+
+Used by:
+RealtimeGroqService.get_response()
+
+
+Function: get_response(question, chat_history=None)
+---------------------------------------------------
+
+Purpose:
+Realtime answer generate karna.
+
+Flow:
+1. Tavily search:
+   search_results = search_tavily(question)
+2. Vector store context retrieve:
+   retriever = vector_store_service.get_retriever(k=10)
+   context_docs = retriever.invoke(question)
+3. Current time/date:
+   time_info = get_time_information()
+4. system_message create:
+   JARVIS_SYSTEM_PROMPT + current time/date
+5. Agar search_results present:
+   Escape curly braces and add to system_message.
+6. Agar vector context present:
+   Escape curly braces and add to system_message.
+7. ChatPromptTemplate create.
+8. chat_history ko HumanMessage/AIMessage format me convert.
+9. self._invoke_llm(prompt, messages, question)
+10. Response return.
+
+Called by:
+ChatService.process_realtime_message()
+
+
+FILE: app/services/chat_service.py
+==================================
+
+Purpose:
+Chat sessions, memory, history formatting, save/load, and message processing manage karna.
+
+This is the central coordinator between API endpoints and AI services.
+
+
+Imports:
+--------
+
+json:
+Chat sessions ko JSON file me save/load karne ke liye.
+
+logging:
+Error/warning logs.
+
+Path:
+Path handling.
+
+List, Optional, Dict:
+Type hints.
+
+uuid:
+New session IDs generate karne ke liye.
+
+CHATS_DATA_DIR:
+Chat files save location.
+
+MAX_CHAT_HISTORY_TURNS:
+Prompt me kitni history bhejni hai.
+
+ChatMessage, ChatHistory:
+Message models.
+
+GroqService:
+Normal chat.
+
+RealtimeGroqService:
+Realtime chat.
+
+
+Class: ChatService
+------------------
+
+Purpose:
+Active sessions ko memory me store karta hai aur disk par save karta hai.
+
+self.sessions:
+Dictionary:
+session_id -> List[ChatMessage]
+
+
+Function: __init__(groq_service, realtime_service=None)
+-------------------------------------------------------
+
+Purpose:
+Groq/realtime services store karna aur empty sessions dict create karna.
+
+Inputs:
+groq_service:
+Normal chat ke liye.
+
+realtime_service:
+Realtime chat ke liye.
+
+
+Function: load_session_from_disk(session_id)
+--------------------------------------------
+
+Purpose:
+Saved chat session ko database/chats_data se load karna.
+
+Flow:
+1. session_id ko safe filename me convert.
+2. filename = chat_{safe_session_id}.json
+3. File exist nahi karti to False.
+4. JSON read.
+5. messages list ko ChatMessage objects me convert.
+6. self.sessions[session_id] = messages
+7. True return.
+8. Error aaye to warning and False.
+
+Used by:
+get_or_create_session()
+
+
+Function: validate_session_id(session_id)
+-----------------------------------------
+
+Purpose:
+Session ID safe hai ya nahi check karna.
+
+Checks:
+1. Empty nahi hona chahiye.
+2. ".." nahi hona chahiye.
+3. "/" nahi hona chahiye.
+4. "\\" nahi hona chahiye.
+5. Length 255 se zyada nahi honi chahiye.
+
+Why:
+File path attack/path traversal avoid karne ke liye.
+
+
+Function: get_or_create_session(session_id=None)
+------------------------------------------------
+
+Purpose:
+Session ID return karna aur ensure karna ki session memory me exist kare.
+
+Flow if no session_id:
+1. uuid.uuid4() se new ID.
+2. self.sessions[new_id] = []
+3. new_id return.
+
+Flow if session_id provided:
+1. validate_session_id()
+2. Invalid hai to ValueError.
+3. Already memory me hai to same ID return.
+4. Disk se load try.
+5. Agar load successful to same ID return.
+6. Warna new empty session create with given ID.
+
+Used by:
+app.main.chat()
+app.main.chat_realtime()
+
+
+Function: add_message(session_id, role, content)
+------------------------------------------------
+
+Purpose:
+Session me user/assistant message add karna.
+
+Flow:
+1. Session missing hai to empty list create.
+2. ChatMessage(role=role, content=content) append.
+
+
+Function: get_chat_history(session_id)
+--------------------------------------
+
+Purpose:
+Session ke messages return karna.
+
+Return:
+List[ChatMessage]
+
+If missing:
+Empty list.
+
+
+Function: format_history_for_llm(session_id, exclude_last=False)
+----------------------------------------------------------------
+
+Purpose:
+Chat history ko LLM ke liye format karna.
+
+Why:
+LangChain prompt me history HumanMessage/AIMessage pair form me chahiye.
+
+Flow:
+1. messages = get_chat_history(session_id)
+2. exclude_last True hai to last message remove.
+   Ye current user message hota hai jiska answer abhi generate karna hai.
+3. Loop me messages ko user-assistant pairs me convert.
+4. Sirf complete pairs include.
+5. MAX_CHAT_HISTORY_TURNS se zyada ho to recent turns keep.
+6. List of tuples return:
+   [(user_text, assistant_text), ...]
+
+
+Function: process_message(session_id, user_message)
+---------------------------------------------------
+
+Purpose:
+Normal chat message process karna.
+
+Flow:
+1. add_message(session_id, "user", user_message)
+2. chat_history = format_history_for_llm(session_id, exclude_last=True)
+3. response = groq_service.get_response(question=user_message, chat_history=chat_history)
+4. add_message(session_id, "assistant", response)
+5. response return.
+
+Called by:
+app.main.chat()
+
+
+Function: process_realtime_message(session_id, user_message)
+------------------------------------------------------------
+
+Purpose:
+Realtime chat message process karna.
+
+Flow:
+1. realtime_service available hai ya nahi check.
+2. user message session me add.
+3. history format.
+4. realtime_service.get_response() call.
+5. assistant response add.
+6. response return.
+
+Called by:
+app.main.chat_realtime()
+
+
+Function: save_chat_session(session_id)
+---------------------------------------
+
+Purpose:
+Session messages ko JSON file me save karna.
+
+Flow:
+1. Session missing ya empty hai to return.
+2. safe_session_id create.
+3. filename = chat_{safe_session_id}.json
+4. chat_dict create:
+   session_id
+   messages list
+5. JSON dump to disk.
+6. Error aaye to log.
+
+Important note:
+Current code me open(filepath, "W", ...) likha hai. Python file mode lowercase "w" hona chahiye. Agar save error aaye to ise "w" karna hoga.
+
+
+FILE: app/utils/time_info.py
+============================
+
+Purpose:
+Current date/time information generate karna.
+
+
+Function: get_time_information()
+--------------------------------
+
+Purpose:
+AI prompt me current day/date/time add karne ke liye string return karta hai.
+
+Flow:
+1. now = datetime.datetime.now()
+2. Day, Date, Month, Year, Time format karta hai.
+3. String return.
+
+Used by:
+GroqService.get_response()
+RealtimeGroqService.get_response()
+
+Why:
+Assistant ko current date/time context milta hai.
+
+
+FILE: app/utils/retry.py
+========================
+
+Purpose:
+Temporary API/network failure par function ko retry karna.
+
+
+Function: with_retry(fn, max_retries=3, initial_delay=1.0)
+----------------------------------------------------------
+
+Purpose:
+Given function ko retry logic ke saath run karna.
+
+Inputs:
+fn:
+Callable function.
+
+max_retries:
+Maximum attempts.
+
+initial_delay:
+First retry se pehle wait time.
+
+Flow:
+1. delay = initial_delay
+2. for attempt in range(max_retries)
+3. fn() call
+4. Success ho to result return.
+5. Exception aaye:
+   - Last attempt hai to raise.
+   - Warning log.
+   - time.sleep(delay)
+   - delay *= 2
+6. Exponential backoff retry.
+
+Used by:
+RealtimeGroqService.search_tavily()
+
+Important note:
+Current code me last_exception = 0 set ho raha hai. Better code would store actual exception:
+last_exception = e
+
+
+FILE: requirements.txt
+======================
+
+Purpose:
+Project dependencies list.
+
+Modules and why used:
+
+fastapi:
+API backend framework.
+
+uvicorn[standard]:
+FastAPI app run karne ke liye ASGI server.
+
+langchain:
+LLM apps ke liye orchestration framework.
+
+langchain-groq:
+Groq models ko LangChain ke through use karne ke liye.
+
+langchain-community:
+Community integrations, FAISS vector store etc.
+
+langchain-core:
+Core prompt/messages/document classes.
+
+sentence-transformers:
+Embedding model support.
+
+faiss-cpu:
+Local vector similarity search.
+
+python-dotenv:
+.env file load karne ke liye.
+
+pydantic:
+Data validation and FastAPI schema.
+
+numpy:
+Numerical operations, embeddings dependencies.
+
+torch:
+Transformer/embedding model backend.
+
+transformers:
+HuggingFace model/tokenizer support.
+
+requests:
+HTTP requests support.
+
+rich:
+Better terminal output support, if used later.
+
+tavily-python:
+Realtime web search.
+
+cohere:
+Cohere API support, currently main flow me directly visible nahi.
+
+langchain-huggingface:
+HuggingFace embeddings integration for LangChain.
+
+
+FOLDER STRUCTURE EXPLANATION
+============================
+
+app/
+Main backend application code.
+
+app/main.py
+FastAPI app, routes, startup.
+
+app/models.py
+Request/response models.
+
+app/services/
+Business logic services.
+
+app/services/chat_service.py
+Session and chat flow manager.
+
+app/services/groq_service.py
+Groq LLM response service.
+
+app/services/realtime_service.py
+Realtime search + Groq service.
+
+app/services/vector_store.py
+FAISS vector memory service.
+
+app/utils/
+Small helper functions.
+
+config.py
+Central configuration.
+
+run.py
+Server entry point.
+
+database/
+Local generated/personal data.
+
+database/chats_data/
+Saved chat sessions.
+
+database/learning_data/
+User learning data text files.
+
+database/vector_store/
+Generated FAISS index.
+
+
+INTER-CALLING FUNCTION MAP
+==========================
+
+Startup:
+
+run.py
+-> uvicorn.run("app.main:app")
+-> app/main.py imported
+-> FastAPI app created
+-> lifespan()
+-> print_title()
+-> VectorStoreService()
+-> VectorStoreService.create_vector_store()
+-> VectorStoreService.load_learning_data()
+-> VectorStoreService.load_chat_history()
+-> VectorStoreService.save_vector_store()
+-> GroqService(vector_store_service)
+-> RealtimeGroqService(vector_store_service)
+-> ChatService(groq_service, realtime_service)
+
+
+Normal chat:
+
+POST /chat
+-> app.main.chat()
+-> chat_service.get_or_create_session()
+-> chat_service.process_message()
+-> chat_service.add_message(role="user")
+-> chat_service.format_history_for_llm()
+-> groq_service.get_response()
+-> vector_store_service.get_retriever()
+-> retriever.invoke(question)
+-> get_time_information()
+-> ChatPromptTemplate.from_messages()
+-> groq_service._invoke_llm()
+-> Groq API
+-> chat_service.add_message(role="assistant")
+-> chat_service.save_chat_session()
+-> ChatResponse
+
+
+Realtime chat:
+
+POST /chat/realtime
+-> app.main.chat_realtime()
+-> chat_service.get_or_create_session()
+-> chat_service.process_realtime_message()
+-> chat_service.add_message(role="user")
+-> chat_service.format_history_for_llm()
+-> realtime_service.get_response()
+-> realtime_service.search_tavily()
+-> with_retry()
+-> tavily_client.search()
+-> vector_store_service.get_retriever()
+-> retriever.invoke(question)
+-> get_time_information()
+-> ChatPromptTemplate.from_messages()
+-> realtime_service._invoke_llm()
+-> Groq API
+-> chat_service.add_message(role="assistant")
+-> chat_service.save_chat_session()
+-> ChatResponse
+
+
+Chat history:
+
+GET /chat/history/{session_id}
+-> app.main.get_chat_history()
+-> chat_service.get_chat_history()
+-> return messages
+
+
+DATA FLOW EXPLANATION
+=====================
+
+User request JSON:
+
+{
+  "message": "Hello",
+  "session_id": "optional"
+}
+
+FastAPI validates using:
+ChatRequest
+
+ChatService:
+Creates or loads session.
+
+VectorStoreService:
+Finds relevant local context.
+
+GroqService:
+Creates system prompt + history + question.
+
+Groq API:
+Returns AI answer.
+
+FastAPI response:
+
+{
+  "response": "AI answer here",
+  "session_id": "same-or-new-session-id"
+}
+
+
+HOW TO START PROJECT
+====================
+
+1. Open PowerShell.
+
+2. Go to project folder:
+cd D:\gaurang\jarvis_ai
+
+3. Activate venv:
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\.venv\Scripts\Activate.ps1
+
+4. Run server:
+python run.py
+
+5. Open browser:
+http://localhost:8000
+
+6. Open API docs:
+http://localhost:8000/docs
+
+
+HOW TO STOP PROJECT
+===================
+
+In terminal press:
+Ctrl + C
+
+
+ENVIRONMENT VARIABLES
+=====================
+
+.env file example:
+
+GROQ_API_KEY=your_key_here
+GROQ_API_KEY_2=optional_second_key
+TAVILY_API_KEY=your_tavily_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
+ASSISTANT_NAME=Jarvis
+JARVIS_USER_TITLE=Sir
+
+
+IMPORTANT LOCAL FILES
+=====================
+
+.env:
+Secret API keys. Never commit to Git.
+
+.venv:
+Python virtual environment. Never commit.
+
+database/vector_store:
+Generated FAISS files. Can be rebuilt.
+
+database/chats_data:
+Saved chat history. Personal data.
+
+database/learning_data:
+Personal learning text data.
+
+
+SECURITY AND PRIVACY NOTES
+==========================
+
+1. .env contains API keys, so it is ignored by Git.
+
+2. Chat history may contain personal data, so database/chats_data should not be public.
+
+3. learning_data may contain private information, so keep it local.
+
+4. API allows all CORS origins right now. For production, restrict allow_origins.
+
+5. session_id validation exists to avoid path traversal attacks.
+
+
+COMMON ERRORS AND MEANING
+=========================
+
+Error:
+cannot import name 'ChatResponse'
+
+Meaning:
+app/models.py me ChatResponse class missing thi.
+
+Fix:
+ChatResponse class add.
+
+
+Error:
+cannot import name 'LERNING_DATA_DIR'
+
+Meaning:
+Spelling mistake. config.py me LEARNING_DATA_DIR hai.
+
+Fix:
+vector_store.py me LEARNING_DATA_DIR use.
+
+
+Error:
+cannot access local variable 'system_message'
+
+Meaning:
+system_message variable use hone se pehle create nahi hua tha.
+
+Fix:
+Realtime service me ye line add:
+system_message = JARVIS_SYSTEM_PROMPT + f"\n\nCurrent time and date: {time_info}"
+
+
+Error:
+TAVILY_API_KEY not set
+
+Meaning:
+Realtime search key missing hai.
+
+Fix:
+.env me TAVILY_API_KEY add.
+
+
+Error:
+No Groq API keys configured
+
+Meaning:
+GROQ_API_KEY missing hai.
+
+Fix:
+.env me GROQ_API_KEY add.
+
+
+POSSIBLE IMPROVEMENTS
+=====================
+
+1. chat_service.py me file open mode "W" ko "w" karna.
+
+2. retry.py me last_exception = 0 ko last_exception = e karna.
+
+3. app/main.py me old corrupted banner text remove karna.
+
+4. CORS allow_origins=["*"] ko production me specific frontend URL karna.
+
+5. Add tests for:
+   - session creation
+   - chat history save/load
+   - vector store creation
+   - Groq fallback logic
+   - realtime search formatting
+
+6. Add frontend UI if needed.
+
+
+SHORT SUMMARY
+=============
+
+Ye project FastAPI based AI assistant backend hai. run.py server start karta hai. app/main.py API routes aur startup manage karta hai. ChatService sessions and chat history manage karta hai. GroqService AI response generate karta hai. RealtimeGroqService Tavily search add karta hai. VectorStoreService learning data and chat history ko FAISS vector memory me convert karta hai. config.py API keys, paths, model, prompt, and settings manage karta hai.
+
+End-to-end:
+User message -> FastAPI route -> ChatService -> Groq/Reatime service -> Vector context/search -> Groq AI -> response -> save history -> return to user.
