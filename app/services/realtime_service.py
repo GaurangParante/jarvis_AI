@@ -85,6 +85,7 @@ class RealtimeGroqService(GroqService):
                 logger.warning("Vector store retrieval failed, using empty context: %s", retrieval_err)
 
             time_info = get_time_information()
+            system_message = JARVIS_SYSTEM_PROMPT + f"\n\nCurrent time and date: {time_info}"
 
             if search_results:
                 escape_search_results = escape_curly_braces(search_results)
