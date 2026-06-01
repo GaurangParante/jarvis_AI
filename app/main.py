@@ -4,9 +4,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 import logging
 import os
-
 from app.models import ChatRequest, ChatResponse
-
 RATE_LIMIT_MESSAGE = (
     "You've reached your daily API limit for this assistant. "
     "Your creadits will reset in a few hours, or you can upgarde your plan for more. "
@@ -16,30 +14,26 @@ RATE_LIMIT_MESSAGE = (
 def _is_rate_limit_error(exc:Exception)->bool:
     msg = str(exc).lower()
     return "429" in str(exc) or "rate limit" in msg or "tokens per day" in msg
-
 from app.services.vector_store import VectorStoreService
 from app.services.groq_service import GroqService
 from app.services.realtime_service import RealtimeGroqService
 from app.services.chat_service import ChatService
 from config import VECTOR_STORE_DIR
 from langchain_community.vectorstores import FAISS
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s | %(levelname)-8s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-
 logger = logging.getLogger("J.A.R.V.I.S")
-
 vector_store_service: VectorStoreService = None
 groq_service: GroqService = None
 realtime_service: RealtimeGroqService = None
 chat_service: ChatService = None
 
-
 def print_title():
     """Print the J.A.R.V.I.S ASCII art title."""
+
     os.system("cls" if os.name == "nt" else "clear")
     title = """
    ╔══════════════════════════════════════════════════════════╗
@@ -65,34 +59,27 @@ def print_title():
 
     print(title)
 
-
 @asynccontextmanager
 async def lifespan(app:FastAPI):
-
     global vector_store_service, groq_service, realtime_service, chat_service
     print_title()
     logger.info("="*60)
     logger.info("J.A.R.V.I.S - Starting Up...")
     logger.info("="*60)
-
     try:
         logger.info("Initializing vector store service...")
         vector_store_service = VectorStoreService()
         vector_store_service.create_vector_store()
         logger.info("Vector store initialized successfully")
-
         logger.info("Initializing Groq service (general queries)...")
         groq_service = GroqService(vector_store_service)
         logger.info("Groq service initialized successfully")
-
         logger.info("Initializing Realtime Groq service (with Tavily search)...")
         realtime_service = RealtimeGroqService(vector_store_service)
         logger.info("Realtime Groq service initialized successfully")
-
         logger.info("Initializing chat service...")
         chat_service = ChatService(groq_service,realtime_service)
         logger.info("Chat service initialize successfully")
-
         logger.info("="*60)
         logger.info("Service Status:")
         logger.info("  - Vector Store: Ready")
@@ -104,9 +91,7 @@ async def lifespan(app:FastAPI):
         logger.info("API: http://localhost:8000")
         logger.info("Docs: http://localhost:8000/docs")
         logger.info("="*60)
-
         yield
-
         logger.info("\nSutting down J.A.R.V.I.S...")
         if chat_service:
             for session_id in list(chat_service.sessions.keys()):
@@ -115,13 +100,11 @@ async def lifespan(app:FastAPI):
     except Exception as e:
         logger.error(f"Fatal error during startup: {e}",exc_info=True)
         raise
-
 app = FastAPI(
     title="J.A.R.V.I.S API",
     description="Just A Rather Very Intelligent System",
     lifespan=lifespan
 )
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -129,7 +112,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.get("/")
 async def root():
@@ -157,7 +139,6 @@ async def health():
 async def chat(request: ChatRequest):
     if not chat_service:
         raise HTTPException(status_code=503,detail="Chat service not initialized")
-    
     try:
         session_id = chat_service.get_or_create_session(request.session_id)
         response_text = chat_service.process_message(session_id,request.message)
@@ -172,16 +153,13 @@ async def chat(request: ChatRequest):
             raise HTTPException(status_code=429,detail=RATE_LIMIT_MESSAGE)
         logger.error(f"Error processing chat: {e}",exc_info=True)
         raise HTTPException(status_code=500,detail=f"Error processing chat: {str(e)}")
-    
+
 @app.post("/chat/realtime",response_model=ChatResponse)
 async def chat_realtime(request:ChatRequest):
-
     if not chat_service:
         raise HTTPException(status_code=503,detail="Chat service not initialized")
-    
     if not realtime_service:
         raise HTTPException(status_code=503,detail="Realtime service not initialized")
-    
     try:
         session_id = chat_service.get_or_create_session(request.session_id)
         response_text = chat_service.process_realtime_message(session_id,request.message)
@@ -196,27 +174,20 @@ async def chat_realtime(request:ChatRequest):
             raise HTTPException(status_code=429,detail=RATE_LIMIT_MESSAGE)
         logger.error(f"Error processing realtime chat: {e}",exc_info=True)
         raise HTTPException(status_code=500,detail=f"Error processing chat: {str(e)}")
-    
 
 @app.get("/chat/history/{session_id}")
 async def get_chat_history(session_id:str):
-
     if not chat_service:
         raise HTTPException(status_code=500,detail="Chat service not initialized")
-    
     try:
         messages = chat_service.get_chat_history(session_id)
-
         return {
             "session_id":session_id,
             "messages":[{'role': msg.role, 'content': msg.content} for msg in messages]
         }
-    
     except Exception as e:
         logger.error(f"Error retrieving history: {e}",exc_info=True)
         raise HTTPException(status_code=500,detail=f"Error retrieving history: {str(e)}")
-    
-
 
 def run():
     uvicorn.run(
@@ -227,7 +198,5 @@ def run():
         log_level="warning",
         access_log=False
     )
-
-
 if __name__ == "__main__":
     run()

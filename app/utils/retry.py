@@ -1,9 +1,7 @@
 import logging
 import time
 from typing import TypeVar, Callable
-
 logger = logging.getLogger("J.A.R.V.I.S")
-
 T = TypeVar("T")
 
 def with_retry(
@@ -13,8 +11,6 @@ def with_retry(
 )->T:
     last_exception = None
     delay = initial_delay
-
-
     for attempt in range(max_retries):
         try:
             return fn()
