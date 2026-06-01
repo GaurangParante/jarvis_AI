@@ -88,7 +88,7 @@ class RealtimeGroqService(GroqService):
 
             if search_results:
                 escape_search_results = escape_curly_braces(search_results)
-                syatem_message += f"\n\nRecent search results:\n{escape_search_results}"
+                system_message += f"\n\nRecent search results:\n{escape_search_results}"
 
             if context:
                 escaped_context = escape_curly_braces(context)

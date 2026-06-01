@@ -16,3 +16,8 @@ class ChatHistory(BaseModel):
 
     session_id:str
     messages: List[ChatMessage]
+
+class ChatResponse(BaseModel):
+
+    response:str
+    session_id:str

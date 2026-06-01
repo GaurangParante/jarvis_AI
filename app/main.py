@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 import logging
+import os
 
 from app.models import ChatRequest, ChatResponse
 
@@ -25,8 +26,8 @@ from langchain_community.vectorstores import FAISS
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s',
-    datefmt='%Y=%m-%d %H:%M:%s'
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 logger = logging.getLogger("J.A.R.V.I.S")
@@ -39,6 +40,7 @@ chat_service: ChatService = None
 
 def print_title():
     """Print the J.A.R.V.I.S ASCII art title."""
+    os.system("cls" if os.name == "nt" else "clear")
     title = """
    ╔══════════════════════════════════════════════════════════╗
    ║                                                          ║
@@ -52,6 +54,13 @@ def print_title():
    ║          Just A Rather Very Intelligent System           ║
    ║                                                          ║
    ╚══════════════════════════════════════════════════════════╝
+    """
+
+    title = """
+   ============================================================
+                         J.A.R.V.I.S
+              Just A Rather Very Intelligent System
+   ============================================================
     """
 
     print(title)
@@ -200,7 +209,7 @@ async def get_chat_history(session_id:str):
 
         return {
             "session_id":session_id,
-            "messages":[{'role': msg.role, 'content': msg.conteny} for msg in messages]
+            "messages":[{'role': msg.role, 'content': msg.content} for msg in messages]
         }
     
     except Exception as e:
@@ -215,7 +224,8 @@ def run():
         host="0.0.0.0",
         port=8000,
         reload=True,
-        log_level="info"
+        log_level="warning",
+        access_log=False
     )
 
 

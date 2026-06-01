@@ -8,7 +8,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 from config import (
-    LERNING_DATA_DIR,
+    LEARNING_DATA_DIR,
     CHATS_DATA_DIR,
     VECTOR_STORE_DIR,
     EMBEDDING_MODEL,
@@ -37,7 +37,7 @@ class VectorStoreService:
 
         documents = []
 
-        for file_path in list(LERNING_DATA_DIR.glob("*.txt")):
+        for file_path in list(LEARNING_DATA_DIR.glob("*.txt")):
             try:
                 with open(file_path,"r",encoding="utf-8") as f:
                     content = f.read().strip()
