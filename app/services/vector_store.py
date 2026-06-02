@@ -27,21 +27,24 @@ class VectorStoreService:
             chunk_overlap=CHUNK_OVERLAP,
         )
         self.vector_store: Optional[FAISS] = None
+        self._retriever_cache = {}
     def load_learning_data(self)->List[Document]:
         documents = []
-        for file_path in list(LEARNING_DATA_DIR.glob("*.txt")):
+        for file_path in sorted(LEARNING_DATA_DIR.glob("*.txt")):
             try:
                 with open(file_path,"r",encoding="utf-8") as f:
                     content = f.read().strip()
                     if content:
                         documents.append(Document(page_content=content,metadata={"source":str(file_path.name)}))
+                        logger.info("[VECTOR] Loaded lerning data: %s (%d chars)",file_path.name,len(content))
             except Exception as e:
                 logger.warning("Could not load learning data file %s: %s",file_path,e)
+        logger.info("[VECTOR] Total learning data files loaded: %d",len(documents))
         return documents
 
     def load_chat_history(self)->List[Document]:
         documents = []
-        for file_path in list(CHATS_DATA_DIR.glob("*.json")):
+        for file_path in sorted(CHATS_DATA_DIR.glob("*.json")):
             try:
                 with open(file_path,"r",encoding="utf-8") as f:
                     chat_data = json.load(f)
@@ -53,19 +56,31 @@ class VectorStoreService:
                 ])
                 if chat_content.strip():
                     documents.append(Document(page_content=chat_content,metadata={"source": f"chat_{file_path.stem}"}))
+                    logger.info("[VECTOR] Loaded chat history: %s (%d messages)",file_path,len(messages))
             except Exception as e:
                 logger.warning("Could not load chat history file %s: %s",file_path,e)
+        logger.info("[VECTOR] Total chat history loaded: %d",len(documents))
         return documents
 
     def create_vector_store(self)->FAISS:
         learning_docs = self.load_learning_data()
         chat_docs = self.load_chat_history()
         all_documents = learning_docs + chat_docs
+        logger.info("[VECTOR] Total documents to index: %d (learning: %d, chat: %d)",
+                    len(all_documents),len(learning_docs),len(chat_docs))
+
         if not all_documents:
             self.vector_store = FAISS.from_texts(["No data available yet."],self.embeddings)
+            logger.info("[VECTOR] No documents found, created placeholder index")
         else:
             chunks = self.text_splitter.split_documents(all_documents)
+            logger.info("[VECTOR] Split into %d chunks (chunk_size=%d, overlap=%d)",
+                        len(chunks),CHUNK_SIZE,CHUNK_OVERLAP)
+
             self.vector_store = FAISS.from_documents(chunks,self.embeddings)
+            logger.info("[VECTOR] FAISS index built successfully with %d vectors",len(chunks))
+        
+        self._retriever_cache.clear()
         self.save_vector_store()
         return self.vector_store
 
@@ -78,4 +93,6 @@ class VectorStoreService:
     def get_retriever(self,k: int = 10):
         if not self.vector_store:
             raise RuntimeError("Vector store not initialized. This should not happen.")
-        return self.vector_store.as_retriever(search_kwargs={"k": k})
+        if k not in self._retriever_cache:
+            self._retriever_cache[k] = self.vector_store.as_retriever(search_kwargs={"k":k})
+        return self._retriever_cache[k]
