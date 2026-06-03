@@ -225,6 +225,9 @@ Realtime search + AI response generate karta hai.
 ChatService:
 Session, chat history, save/load, aur message processing manage karta hai.
 
+TaskExecutor aur TaskManager:
+Image generation, web open, search shortcuts, aur background task polling handle karte hain. Image generation ab default local fallback use karti hai, aur agar `POLLINATIONS_API_KEY` set ho to Pollinations fallback bhi use ho sakta hai.
+
 
 Logging setup:
 --------------

@@ -20,6 +20,7 @@ ENV/
 !.env.example
 
 # Local app data
+database/camera_captures/
 database/chats_data/
 database/vector_store/
 database/learning_data/

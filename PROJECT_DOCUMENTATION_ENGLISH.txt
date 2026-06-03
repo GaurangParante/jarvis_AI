@@ -258,6 +258,9 @@ Generates realtime AI responses using Tavily search and Groq.
 ChatService:
 Manages sessions, chat history, message processing, and saving/loading chat files.
 
+TaskExecutor and TaskManager:
+Handle task-style commands such as image generation, web opening, search shortcuts, and background polling for results. Image generation now uses a local fallback by default and can optionally use Pollinations if `POLLINATIONS_API_KEY` is set.
+
 
 Logging setup:
 --------------
